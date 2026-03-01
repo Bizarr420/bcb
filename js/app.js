@@ -118,44 +118,53 @@ function parseText(text) {
     // if no denomination found, default to 10
     const defaultDenom = denoms.size > 0 ? Array.from(denoms)[0] : 10;
     const results = [];
-    // find serials anywhere in text, capturing letter before or after number
-    // pattern covers "B032288398", "032288398 B" and similar
-    // explicitly keep any leading zeros in the number portion
-    // also match patterns with optional spacing/dashes
-    const serialRegex = /([A-Za-z])\s*[-]?\s*(\d{7,9})|(\d{7,9})\s*[-]?\s*([A-Za-z])/g;
+    
+    // Patrón principal: NÚMERO + SERIE (ej: 032288398 B)
+    // El patrón en billetes bolivianos es: primero los 8-9 dígitos, luego la letra
+    // Permite espacios, saltos de línea, o caracteres especiales entre número y letra
+    const numberSeriesRegex = /(\d{6,10})\s*(?:[-/•.]?\s*)?([A-Za-z])/g;
+    
     let match;
-    while ((match = serialRegex.exec(text)) !== null) {
-        if (match[1] && match[2]) {
-            // Letter before number
-            results.push({ denom: defaultDenom, letter: match[1], number: match[2] });
-        } else if (match[3] && match[4]) {
-            // Number before letter
-            results.push({ denom: defaultDenom, letter: match[4], number: match[3] });
+    const foundSerials = new Set();
+    
+    while ((match = numberSeriesRegex.exec(text)) !== null) {
+        const number = match[1];
+        const letter = match[2];
+        
+        // Validar que el número tenga 7-9 dígitos (descartar números muy cortos o muy largos)
+        if (number.length >= 7 && number.length <= 9) {
+            const key = `${letter}${number}`;
+            if (!foundSerials.has(key)) {
+                foundSerials.add(key);
+                results.push({ 
+                    denom: defaultDenom, 
+                    letter: letter, 
+                    number: number 
+                });
+            }
         }
     }
     
-    // Remove duplicates by serial key
-    const uniqueResults = [];
-    const seen = new Set();
-    results.forEach(r => {
-        const key = `${r.letter}${r.number}`;
-        if (!seen.has(key)) {
-            seen.add(key);
-            uniqueResults.push(r);
-        }
-    });
-    
-    return uniqueResults;
+    console.log('[App] Seriales encontrados:', results);
+    return results;
 }
 
 async function processImage(img) {
     // clear previous results for a fresh run
     document.getElementById('results').innerHTML = '';
     const text = await recognizeImage(img);
-    console.log('OCR texto:', text);
+    console.log('OCR texto crudo:', text);
+    console.log('OCR líneas detectadas:', text.split('\n'));
+    
     const parsed = parseText(text);
     if (parsed.length === 0) {
-        appendResult({ denom: '', letter: '', number: '', message: 'No se detectaron billetes' });
+        const debugDiv = document.createElement('div');
+        debugDiv.className = 'result-item error';
+        debugDiv.innerHTML = `
+            <div class="result-header">❌ No se detectaron billetes</div>
+            <div class="result-message">Texto OCR crudo (para debug):<br><code>${text.replace(/\n/g, '<br>')}</code></div>
+        `;
+        document.getElementById('results').appendChild(debugDiv);
         return;
     }
     parsed.forEach(p => {
