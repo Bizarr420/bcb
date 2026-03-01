@@ -809,36 +809,9 @@ function calcularConfianzaValor(valorColor, resultadosAreas, valorFinal) {
 function mostrarErrorAnalisis(valorColor, resultadosAreas, seguridad, textoOCR) {
     const debugDiv = document.createElement('div');
     debugDiv.className = 'result-item error';
-    
-    let html = `
-        <div class="result-header">❌ No se detectaron seriales válidos</div>
-        <div class="result-message">
-            <strong>Análisis avanzado:</strong><br>
-            🎨 <strong>Valor por color:</strong> ${valorColor ? `${valorColor} Bs` : 'No detectado'}<br>
+    debugDiv.innerHTML = `
+        <div class="result-header">❌ No se detectó el billete o no es válido</div>
     `;
-    
-    // Agregar resultados de áreas
-    const areasConValor = resultadosAreas.filter(r => r.valor);
-    if (areasConValor.length > 0) {
-        html += `📍 <strong>Áreas detectadas:</strong><br>`;
-        areasConValor.forEach(area => {
-            html += `&nbsp;&nbsp;• ${area.descripcion}: ${area.valor} Bs<br>`;
-        });
-    }
-    
-    // Agregar seguridad
-    html += `🔒 <strong>Seguridad:</strong> `;
-    const seguridadItems = [];
-    if (seguridad.marcaAgua.detectada) seguridadItems.push('Marca de agua');
-    if (seguridad.lineasSeguridad.detectadas) seguridadItems.push('Líneas de seguridad');
-    if (seguridad.holograma.detectado) seguridadItems.push('Holograma');
-    html += seguridadItems.length > 0 ? seguridadItems.join(', ') : 'No detectadas';
-    html += `<br>`;
-    
-    // Agregar texto OCR para debug
-    html += `<br><strong>Texto OCR crudo:</strong><br><code>${textoOCR.replace(/\n/g, '<br>')}</code></div>`;
-    
-    debugDiv.innerHTML = html;
     document.getElementById('results').appendChild(debugDiv);
 }
 
@@ -859,38 +832,11 @@ function appendResult(r) {
     div.className = `result-item ${r.status}`;
     
     const statusEmoji = r.status === 'bad' ? '🔴' : '🟢';
-    const confianzaValor = r.confianzaValor ? (r.confianzaValor * 100).toFixed(0) : 'N/A';
-    
-    // Determinar clase de confianza
-    let confianzaClass = 'confianza-baja';
-    if (r.confianzaValor >= 0.7) confianzaClass = 'confianza-alta';
-    else if (r.confianzaValor >= 0.4) confianzaClass = 'confianza-media';
-    
-    // Determinar emoji de seguridad
-    let seguridadEmoji = '⚪';
-    let seguridadTexto = 'No evaluada';
-    if (r.seguridad) {
-        const itemsSeguridad = [];
-        if (r.seguridad.marcaAgua.detectada) itemsSeguridad.push('💧');
-        if (r.seguridad.lineasSeguridad.detectadas) itemsSeguridad.push('📏');
-        if (r.seguridad.holograma.detectado) itemsSeguridad.push('✨');
-        
-        if (itemsSeguridad.length > 0) {
-            seguridadEmoji = itemsSeguridad.join('');
-            seguridadTexto = 'Características detectadas';
-        }
-    }
     
     div.innerHTML = `
         <div class="result-header">${statusEmoji} ${r.valorDetectado} Bs - Serie ${r.letter} ${r.number}</div>
         <div class="result-message">
             ${r.message}
-            <div class="seguridad-indicators">
-                <small>
-                    🎨 Confianza valor: <span class="confianza-indicator ${confianzaClass}">${confianzaValor}%</span><br>
-                    ${seguridadEmoji} ${seguridadTexto}
-                </small>
-            </div>
         </div>
     `;
     container.appendChild(div);
@@ -961,6 +907,19 @@ if ('serviceWorker' in navigator) {
                         }
                     });
                 });
+
+                // Verificar conexión periódicamente
+                setInterval(() => {
+                    if (navigator.onLine) {
+                        // Intentar actualizar cache cuando hay conexión
+                        if (registration.active) {
+                            const messageChannel = new MessageChannel();
+                            registration.active.postMessage({
+                                type: 'UPDATE_CACHE'
+                            }, [messageChannel.port2]);
+                        }
+                    }
+                }, 30000); // Cada 30 segundos
             })
             .catch((error) => {
                 console.error('[App] Error al registrar Service Worker:', error);
@@ -973,6 +932,21 @@ if ('serviceWorker' in navigator) {
     console.warn('[App] Service Workers no soportados en este navegador');
     document.getElementById('pwa-status').textContent = '⚠ Este navegador no soporta PWA';
 }
+
+// Escuchar cambios de conexión
+window.addEventListener('online', () => {
+    console.log('[App] Conexión restaurada');
+    const statusElement = document.getElementById('pwa-status');
+    statusElement.textContent = '✓ App lista para usar offline';
+    statusElement.style.color = '#48bb78';
+});
+
+window.addEventListener('offline', () => {
+    console.log('[App] Conexión perdida');
+    const statusElement = document.getElementById('pwa-status');
+    statusElement.textContent = '📱 Modo offline';
+    statusElement.style.color = '#f6ad55';
+});
 
 // ==================== PWA INSTALL PROMPT ====================
 let deferredPrompt;
