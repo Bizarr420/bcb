@@ -173,6 +173,50 @@ input[type="file"]::file-selector-button {
     color: #666;
 }
 
+.result-message small {
+    display: block;
+    margin-top: 0.5rem;
+    padding: 0.3rem 0.5rem;
+    background: rgba(0,0,0,0.05);
+    border-radius: 4px;
+    font-size: 0.85rem;
+    color: #555;
+}
+
+/* Indicadores de confianza y seguridad */
+.confianza-indicator {
+    display: inline-block;
+    padding: 0.2rem 0.5rem;
+    border-radius: 12px;
+    font-size: 0.8rem;
+    font-weight: 600;
+    margin-left: 0.5rem;
+}
+
+.confianza-alta {
+    background: #c6f6d5;
+    color: #22543d;
+}
+
+.confianza-media {
+    background: #fed7aa;
+    color: #7c2d12;
+}
+
+.confianza-baja {
+    background: #fed7d7;
+    color: #742a2a;
+}
+
+.seguridad-indicators {
+    margin-top: 0.3rem;
+}
+
+.seguridad-indicators span {
+    margin-right: 0.5rem;
+    font-size: 1rem;
+}
+
 footer {
     background: white;
     padding: 1.5rem;

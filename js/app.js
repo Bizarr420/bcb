@@ -98,6 +98,521 @@ function appendResult(r) {
     container.appendChild(div);
 }
 
+// ==================== DETECCIÓN POR COLOR ====================
+function detectarValorPorColor(imageData) {
+    // Análisis de color para identificar denominación
+    // Basado en colores característicos de billetes bolivianos:
+    // 10 Bs: Verde dominante
+    // 20 Bs: Naranja dominante  
+    // 50 Bs: Morado/Lila dominante
+    
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    
+    return new Promise((resolve) => {
+        const img = new Image();
+        img.onload = () => {
+            canvas.width = img.width;
+            canvas.height = img.height;
+            ctx.drawImage(img, 0, 0);
+            
+            // Muestrear múltiples áreas para mejor detección
+            const areas = [
+                { x: 0.1, y: 0.1, w: 0.3, h: 0.3 },  // Superior izquierda
+                { x: 0.7, y: 0.1, w: 0.3, h: 0.3 },  // Superior derecha
+                { x: 0.1, y: 0.7, w: 0.3, h: 0.3 },  // Inferior izquierda
+                { x: 0.7, y: 0.7, w: 0.3, h: 0.3 },  // Inferior derecha
+                { x: 0.4, y: 0.4, w: 0.2, h: 0.2 }   // Centro
+            ];
+            
+            let colorData = [];
+            
+            areas.forEach(area => {
+                const x = Math.floor(area.x * canvas.width);
+                const y = Math.floor(area.y * canvas.height);
+                const w = Math.floor(area.w * canvas.width);
+                const h = Math.floor(area.h * canvas.height);
+                
+                const imageData = ctx.getImageData(x, y, w, h);
+                const avgColor = getAverageColor(imageData.data);
+                colorData.push(avgColor);
+            });
+            
+            const valor = analizarColores(colorData);
+            resolve(valor);
+        };
+        img.src = imageData;
+    });
+}
+
+function getAverageColor(data) {
+    let r = 0, g = 0, b = 0;
+    let count = 0;
+    
+    for (let i = 0; i < data.length; i += 4) {
+        r += data[i];
+        g += data[i + 1];
+        b += data[i + 2];
+        count++;
+    }
+    
+    return {
+        r: Math.floor(r / count),
+        g: Math.floor(g / count),
+        b: Math.floor(b / count)
+    };
+}
+
+function analizarColores(colorData) {
+    // Convertir RGB a HSV para mejor análisis de color
+    const hsvData = colorData.map(rgb => rgbToHsv(rgb.r, rgb.g, rgb.b));
+    
+    // Contar colores dominantes
+    let verdeCount = 0, naranjaCount = 0, moradoCount = 0;
+    
+    hsvData.forEach(hsv => {
+        const h = hsv.h; // 0-360
+        const s = hsv.s; // 0-100
+        const v = hsv.v; // 0-100
+        
+        // Ignorar colores muy claros o muy oscuros
+        if (v < 20 || v > 95 || s < 20) return;
+        
+        // Verde: 80-180 grados
+        if (h >= 80 && h <= 180) verdeCount++;
+        // Naranja: 20-50 grados
+        else if (h >= 20 && h <= 50) naranjaCount++;
+        // Morado/Lila: 260-320 grados
+        else if (h >= 260 && h <= 320) moradoCount++;
+    });
+    
+    console.log('[Color] Conteo - Verde:', verdeCount, 'Naranja:', naranjaCount, 'Morado:', moradoCount);
+    
+    // Determinar valor por color dominante
+    if (verdeCount > naranjaCount && verdeCount > moradoCount) {
+        return 10;
+    } else if (naranjaCount > verdeCount && naranjaCount > moradoCount) {
+        return 20;
+    } else if (moradoCount > verdeCount && moradoCount > naranjaCount) {
+        return 50;
+    }
+    
+    return null; // No se pudo determinar
+}
+
+function rgbToHsv(r, g, b) {
+    r /= 255;
+    g /= 255;
+    b /= 255;
+    
+    const max = Math.max(r, g, b);
+    const min = Math.min(r, g, b);
+    const diff = max - min;
+    
+    let h = 0;
+    let s = max === 0 ? 0 : diff / max;
+    let v = max;
+    
+    if (diff !== 0) {
+        switch (max) {
+            case r: h = ((g - b) / diff + (g < b ? 6 : 0)) / 6; break;
+            case g: h = ((b - r) / diff + 2) / 6; break;
+            case b: h = ((r - g) / diff + 4) / 6; break;
+        }
+    }
+    
+    return {
+        h: Math.round(h * 360),
+        s: Math.round(s * 100),
+        v: Math.round(v * 100)
+    };
+}
+
+// ==================== CORRECCIÓN DE ROTACIÓN ====================
+function corregirRotacion(imageData) {
+    return new Promise((resolve) => {
+        const img = new Image();
+        img.onload = () => {
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+            
+            // Detectar orientación
+            const esVertical = img.height > img.width * 1.5;
+            
+            if (esVertical) {
+                console.log('[Rotación] Imagen vertical detectada, rotando 90°');
+                canvas.width = img.height;
+                canvas.height = img.width;
+                ctx.save();
+                ctx.translate(canvas.width / 2, canvas.height / 2);
+                ctx.rotate(Math.PI / 2);
+                ctx.drawImage(img, -img.width / 2, -img.height / 2);
+                ctx.restore();
+            } else {
+                canvas.width = img.width;
+                canvas.height = img.height;
+                ctx.drawImage(img, 0, 0);
+            }
+            
+            resolve(canvas.toDataURL());
+        };
+        img.src = imageData;
+    });
+}
+
+// ==================== DETECCIÓN MULTI-ÁREA ====================
+function detectarValorMultiArea(imageData) {
+    return new Promise((resolve) => {
+        const img = new Image();
+        img.onload = () => {
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+            canvas.width = img.width;
+            canvas.height = img.height;
+            ctx.drawImage(img, 0, 0);
+            
+            // Definir las 3 áreas basadas en tu imagen
+            const areas = [
+                {
+                    nombre: 'superior_izquierda',
+                    x: 0.05, y: 0.05, w: 0.25, h: 0.25,
+                    descripcion: 'Número con signo ='
+                },
+                {
+                    nombre: 'inferior_izquierda', 
+                    x: 0.05, y: 0.70, w: 0.25, h: 0.20,
+                    descripcion: 'Número circular'
+                },
+                {
+                    nombre: 'inferior_derecha',
+                    x: 0.60, y: 0.70, w: 0.35, h: 0.25,
+                    descripcion: 'Valor principal'
+                }
+            ];
+            
+            let resultados = [];
+            
+            areas.forEach(area => {
+                const x = Math.floor(area.x * canvas.width);
+                const y = Math.floor(area.y * canvas.height);
+                const w = Math.floor(area.w * canvas.width);
+                const h = Math.floor(area.h * canvas.height);
+                
+                // Extraer área
+                const areaCanvas = document.createElement('canvas');
+                const areaCtx = areaCanvas.getContext('2d');
+                areaCanvas.width = w;
+                areaCanvas.height = h;
+                areaCtx.drawImage(canvas, x, y, w, h, 0, 0, w, h);
+                
+                // Preprocesar área para mejor OCR
+                const areaProcesada = preprocesarArea(areaCanvas);
+                
+                resultados.push({
+                    area: area.nombre,
+                    descripcion: area.descripcion,
+                    imagen: areaProcesada,
+                    posicion: { x, y, w, h }
+                });
+            });
+            
+            resolve(resultados);
+        };
+        img.src = imageData;
+    });
+}
+
+function preprocesarArea(canvas) {
+    const ctx = canvas.getContext('2d');
+    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const data = imageData.data;
+    
+    // Mejorar contraste
+    const factor = 1.5;
+    for (let i = 0; i < data.length; i += 4) {
+        data[i] = Math.min(255, data[i] * factor);     // R
+        data[i + 1] = Math.min(255, data[i + 1] * factor); // G
+        data[i + 2] = Math.min(255, data[i + 2] * factor); // B
+    }
+    
+    // Convertir a escala de grises
+    for (let i = 0; i < data.length; i += 4) {
+        const gray = data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114;
+        data[i] = gray;
+        data[i + 1] = gray;
+        data[i + 2] = gray;
+    }
+    
+    // Binarización (threshold adaptativo simple)
+    for (let i = 0; i < data.length; i += 4) {
+        const threshold = 128;
+        const value = data[i] > threshold ? 255 : 0;
+        data[i] = value;
+        data[i + 1] = value;
+        data[i + 2] = value;
+    }
+    
+    ctx.putImageData(imageData, 0, 0);
+    return canvas.toDataURL();
+}
+
+async function procesarAreasMultiArea(areas) {
+    const resultados = [];
+    
+    for (const area of areas) {
+        try {
+            const texto = await recognizeImage(area.imagen);
+            const valor = extraerValorDeTexto(texto);
+            
+            resultados.push({
+                area: area.area,
+                descripcion: area.descripcion,
+                texto: texto.trim(),
+                valor: valor,
+                confianza: valor ? 1.0 : 0.0
+            });
+            
+            console.log(`[Multi-área] ${area.area}: "${texto.trim()}" -> ${valor || 'null'}`);
+        } catch (error) {
+            console.error(`[Multi-área] Error en ${area.area}:`, error);
+            resultados.push({
+                area: area.area,
+                descripcion: area.descripcion,
+                texto: '',
+                valor: null,
+                confianza: 0.0
+            });
+        }
+    }
+    
+    return resultados;
+}
+
+function extraerValorDeTexto(texto) {
+    const textoLimpio = texto.toUpperCase().replace(/[^0-9A-Z\s]/g, '');
+    
+    // Buscar patrones de valor
+    const patrones = {
+        10: [/10/, /DIEZ/],
+        20: [/20/, /VEINTE/],
+        50: [/50/, /CINCUENTA/]
+    };
+    
+    for (const [valor, regexes] of Object.entries(patrones)) {
+        for (const regex of regexes) {
+            if (regex.test(textoLimpio)) {
+                return parseInt(valor);
+            }
+        }
+    }
+    
+    return null;
+}
+
+// ==================== DETECCIÓN DE CARACTERÍSTICAS DE SEGURIDAD ====================
+function detectarCaracteristicasSeguridad(imageData) {
+    return new Promise((resolve) => {
+        const img = new Image();
+        img.onload = () => {
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+            canvas.width = img.width;
+            canvas.height = img.height;
+            ctx.drawImage(img, 0, 0);
+            
+            const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            const data = imageData.data;
+            
+            const caracteristicas = {
+                marcaAgua: detectarMarcaAgua(data, canvas.width, canvas.height),
+                lineasSeguridad: detectarLineasSeguridad(ctx, canvas.width, canvas.height),
+                calidadImagen: evaluarCalidadImagen(data),
+                texturasSeguridad: detectarTexturasSeguridad(data),
+                holograma: detectarHolograma(ctx, canvas.width, canvas.height)
+            };
+            
+            console.log('[Seguridad] Características detectadas:', caracteristicas);
+            resolve(caracteristicas);
+        };
+        img.src = imageData;
+    });
+}
+
+function detectarMarcaAgua(data, width, height) {
+    // Detectar variaciones sutiles en la imagen que podrían ser marcas de agua
+    let variaciones = 0;
+    let muestras = 0;
+    
+    // Muestrear áreas específicas donde suelen estar las marcas de agua
+    for (let y = 0; y < height; y += 20) {
+        for (let x = 0; x < width; x += 20) {
+            const idx = (y * width + x) * 4;
+            const r = data[idx];
+            const g = data[idx + 1];
+            const b = data[idx + 2];
+            
+            // Calcular variación local
+            const brillo = (r + g + b) / 3;
+            if (brillo > 50 && brillo < 200) {
+                const varLocal = Math.abs(r - g) + Math.abs(g - b) + Math.abs(r - b);
+                if (varLocal > 10 && varLocal < 50) {
+                    variaciones++;
+                }
+                muestras++;
+            }
+        }
+    }
+    
+    const ratio = muestras > 0 ? variaciones / muestras : 0;
+    return {
+        detectada: ratio > 0.15 && ratio < 0.4,
+        confianza: Math.min(ratio * 2, 1.0),
+        ratio: ratio
+    };
+}
+
+function detectarLineasSeguridad(ctx, width, height) {
+    // Detectar líneas finas características de seguridad
+    const imageData = ctx.getImageData(0, 0, width, height);
+    const data = imageData.data;
+    
+    // Convertir a escala de grises
+    const grayData = [];
+    for (let i = 0; i < data.length; i += 4) {
+        grayData.push(data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114);
+    }
+    
+    // Detectar bordes con Sobel
+    const edges = [];
+    for (let y = 1; y < height - 1; y++) {
+        for (let x = 1; x < width - 1; x++) {
+            const idx = y * width + x;
+            
+            const sobelX = 
+                -1 * grayData[idx - width - 1] + 1 * grayData[idx - width + 1] +
+                -2 * grayData[idx - 1] + 2 * grayData[idx + 1] +
+                -1 * grayData[idx + width - 1] + 1 * grayData[idx + width + 1];
+            
+            const sobelY = 
+                -1 * grayData[idx - width - 1] - 2 * grayData[idx - width] - 1 * grayData[idx - width + 1] +
+                1 * grayData[idx + width - 1] + 2 * grayData[idx + width] + 1 * grayData[idx + width + 1];
+            
+            const magnitude = Math.sqrt(sobelX * sobelX + sobelY * sobelY);
+            edges.push(magnitude > 50 ? 1 : 0);
+        }
+    }
+    
+    const lineCount = edges.reduce((a, b) => a + b, 0);
+    const totalPixels = (width - 2) * (height - 2);
+    const ratio = lineCount / totalPixels;
+    
+    return {
+        detectadas: ratio > 0.02 && ratio < 0.15,
+        confianza: Math.min(ratio * 10, 1.0),
+        densidad: ratio
+    };
+}
+
+function evaluarCalidadImagen(data) {
+    // Evaluar la calidad general de la imagen
+    let brilloTotal = 0;
+    let contraste = 0;
+    let nitridez = 0;
+    
+    for (let i = 0; i < data.length; i += 4) {
+        const r = data[i];
+        const g = data[i + 1];
+        const b = data[i + 2];
+        
+        brilloTotal += (r + g + b) / 3;
+        
+        // Calcular contraste local
+        if (i > 4 && i < data.length - 4) {
+            const diff = Math.abs(r - data[i - 4]) + Math.abs(g - data[i - 3]) + Math.abs(b - data[i - 2]);
+            contraste += diff / 3;
+        }
+    }
+    
+    const pixelCount = data.length / 4;
+    const brilloPromedio = brilloTotal / pixelCount;
+    const contrastePromedio = contraste / pixelCount;
+    
+    return {
+        brillo: brilloPromedio,
+        contraste: contrastePromedio,
+        calidad: brilloPromedio > 50 && brilloPromedio < 200 && contrastePromedio > 10 ? 'buena' : 'regular'
+    };
+}
+
+function detectarTexturasSeguridad(data) {
+    // Detectar patrones de textura característicos
+    let patrones = 0;
+    let muestras = 0;
+    
+    for (let i = 0; i < data.length - 12; i += 12) {
+        const bloque = [
+            data[i], data[i + 4], data[i + 8],
+            data[i + 1], data[i + 5], data[i + 9],
+            data[i + 2], data[i + 6], data[i + 10]
+        ];
+        
+        // Detectar patrones repetitivos
+        const varianza = calcularVarianza(bloque);
+        if (varianza > 100 && varianza < 1000) {
+            patrones++;
+        }
+        muestras++;
+    }
+    
+    const ratio = muestras > 0 ? patrones / muestras : 0;
+    return {
+        detectadas: ratio > 0.1,
+        confianza: Math.min(ratio * 5, 1.0),
+        ratio: ratio
+    };
+}
+
+function detectarHolograma(ctx, width, height) {
+    // Detectar características iridescentes/holográficas
+    const imageData = ctx.getImageData(0, 0, width, height);
+    const data = imageData.data;
+    
+    let iridiscencia = 0;
+    let muestras = 0;
+    
+    // Buscar cambios de color bruscos característicos de hologramas
+    for (let i = 0; i < data.length - 12; i += 4) {
+        const r1 = data[i];
+        const g1 = data[i + 1];
+        const b1 = data[i + 2];
+        
+        const r2 = data[i + 4];
+        const g2 = data[i + 5];
+        const b2 = data[i + 6];
+        
+        // Calcular diferencia de color
+        const diffColor = Math.abs(r1 - r2) + Math.abs(g1 - g2) + Math.abs(b1 - b2);
+        
+        if (diffColor > 50 && diffColor < 200) {
+            iridiscencia++;
+        }
+        muestras++;
+    }
+    
+    const ratio = muestras > 0 ? iridiscencia / muestras : 0;
+    return {
+        detectado: ratio > 0.05,
+        confianza: Math.min(ratio * 8, 1.0),
+        ratio: ratio
+    };
+}
+
+function calcularVarianza(valores) {
+    const media = valores.reduce((a, b) => a + b, 0) / valores.length;
+    const varianza = valores.reduce((a, b) => a + Math.pow(b - media, 2), 0) / valores.length;
+    return varianza;
+}
+
 // OCR helpers
 async function recognizeImage(image) {
     const { data: { text } } = await Tesseract.recognize(image, 'spa', {
@@ -154,46 +669,231 @@ function parseText(text) {
 async function processImage(img) {
     // clear previous results for a fresh run
     document.getElementById('results').innerHTML = '';
-    const text = await recognizeImage(img);
-    console.log('OCR texto crudo:', text);
-    console.log('OCR líneas detectadas:', text.split('\n'));
     
-    const parsed = parseText(text);
-    if (parsed.length === 0) {
-        const debugDiv = document.createElement('div');
-        debugDiv.className = 'result-item error';
-        debugDiv.innerHTML = `
-            <div class="result-header">❌ No se detectaron billetes</div>
-            <div class="result-message">Texto OCR crudo (para debug):<br><code>${text.replace(/\n/g, '<br>')}</code></div>
-        `;
-        document.getElementById('results').appendChild(debugDiv);
-        return;
+    console.log('[Proceso] Iniciando análisis completo del billete...');
+    
+    try {
+        // 1. Corregir rotación automáticamente
+        console.log('[Proceso] Paso 1: Corrigiendo rotación...');
+        const imagenCorregida = await corregirRotacion(img);
+        
+        // 2. Detectar valor por color
+        console.log('[Proceso] Paso 2: Detectando valor por color...');
+        const valorPorColor = await detectarValorPorColor(imagenCorregida);
+        console.log('[Proceso] Valor detectado por color:', valorPorColor);
+        
+        // 3. Detectar valor multi-área
+        console.log('[Proceso] Paso 3: Analizando áreas específicas...');
+        const areas = await detectarValorMultiArea(imagenCorregida);
+        const resultadosAreas = await procesarAreasMultiArea(areas);
+        
+        // 4. Detectar características de seguridad
+        console.log('[Proceso] Paso 4: Analizando seguridad...');
+        const seguridad = await detectarCaracteristicasSeguridad(imagenCorregida);
+        
+        // 5. OCR tradicional para seriales
+        console.log('[Proceso] Paso 5: Extrayendo seriales con OCR...');
+        const text = await recognizeImage(imagenCorregida);
+        console.log('OCR texto crudo:', text);
+        
+        // 6. Parsear seriales
+        const parsed = parseText(text);
+        console.log('[Proceso] Seriales encontrados:', parsed);
+        
+        // 7. Integrar toda la información
+        if (parsed.length === 0) {
+            mostrarErrorAnalisis(valorPorColor, resultadosAreas, seguridad, text);
+            return;
+        }
+        
+        // Procesar cada serial encontrado
+        for (const p of parsed) {
+            // Determinar valor final (prioridad: color > multi-área > OCR)
+            const valorFinal = determinarValorFinal(valorPorColor, resultadosAreas, p.denom);
+            
+            // Normalizar serie letter
+            let letter = p.letter.toUpperCase();
+            if (letter === 'U' || letter === '8' || letter === '6' || letter === 'V') {
+                letter = 'B';
+            }
+            if (letter === '4') {
+                letter = 'A';
+            }
+            if (letter !== 'A' && letter !== 'B') {
+                letter = 'B';
+            }
+            
+            // Validar serial con valor determinado
+            const res = checkSerial(valorFinal, letter, p.number);
+            
+            // Enriquecer resultado con información adicional
+            res.valorDetectado = valorFinal;
+            res.valorPorColor = valorPorColor;
+            res.resultadosAreas = resultadosAreas;
+            res.seguridad = seguridad;
+            res.confianzaValor = calcularConfianzaValor(valorPorColor, resultadosAreas, valorFinal);
+            
+            appendResult(res);
+        }
+        
+    } catch (error) {
+        console.error('[Proceso] Error en análisis:', error);
+        mostrarErrorGeneral(error);
     }
-    parsed.forEach(p => {
-        // normalize series letter: only A or B are valid, map common misreads
-        let letter = p.letter.toUpperCase();
+}
+
+function determinarValorFinal(valorColor, resultadosAreas, valorOCR) {
+    // Prioridad: Color > Multi-área > OCR
+    const valoresAreas = resultadosAreas
+        .filter(r => r.valor)
+        .map(r => r.valor);
+    
+    // Contar frecuencia de valores por área
+    if (valoresAreas.length > 0) {
+        const frecuencia = {};
+        valoresAreas.forEach(v => {
+            frecuencia[v] = (frecuencia[v] || 0) + 1;
+        });
         
-        // Common OCR confusions in billetes:
-        // B puede verse como: U, 8, 6, o V
-        // A puede verse como: 4
-        if (letter === 'U' || letter === '8' || letter === '6' || letter === 'V') {
-            letter = 'B';
-        }
-        if (letter === '4') {
-            letter = 'A';
+        const valorMasFrecuente = Object.keys(frecuencia).reduce((a, b) => 
+            frecuencia[a] > frecuencia[b] ? a : b
+        );
+        
+        // Si coincide con el color, usar ese valor
+        if (valorColor === parseInt(valorMasFrecuente)) {
+            return valorColor;
         }
         
-        // Si sigue siendo inválido, intentar deducir del contexto
-        if (letter !== 'A' && letter !== 'B') {
-            // La mayoría de billetes dañados/inhabilitados son Serie B
-            // Así que si hay ambigüedad, asumir B
-            console.warn('[App] Carácter ambiguo detectado:', p.letter, '-> asumiendo B');
-            letter = 'B';
+        // Si no hay color pero hay áreas consistentes
+        if (!valorColor && frecuencia[valorMasFrecuente] >= 2) {
+            return parseInt(valorMasFrecuente);
         }
+    }
+    
+    // Priorizar color si está disponible
+    if (valorColor) {
+        return valorColor;
+    }
+    
+    // Usar OCR como último recurso
+    return valorOCR || 10; // Default a 10 si no se detecta nada
+}
+
+function calcularConfianzaValor(valorColor, resultadosAreas, valorFinal) {
+    let confianza = 0;
+    let factores = 0;
+    
+    // Confianza por color
+    if (valorColor === valorFinal) {
+        confianza += 0.4;
+        factores++;
+    }
+    
+    // Confianza por áreas
+    const areasCorrectas = resultadosAreas.filter(r => r.valor === valorFinal).length;
+    if (areasCorrectas > 0) {
+        confianza += (areasCorrectas / resultadosAreas.length) * 0.4;
+        factores++;
+    }
+    
+    // Confianza base si hay factores
+    if (factores > 0) {
+        confianza += 0.2; // Base por tener alguna detección
+    } else {
+        confianza = 0.1; // Mínima si solo hay OCR
+    }
+    
+    return Math.min(confianza, 1.0);
+}
+
+function mostrarErrorAnalisis(valorColor, resultadosAreas, seguridad, textoOCR) {
+    const debugDiv = document.createElement('div');
+    debugDiv.className = 'result-item error';
+    
+    let html = `
+        <div class="result-header">❌ No se detectaron seriales válidos</div>
+        <div class="result-message">
+            <strong>Análisis avanzado:</strong><br>
+            🎨 <strong>Valor por color:</strong> ${valorColor ? `${valorColor} Bs` : 'No detectado'}<br>
+    `;
+    
+    // Agregar resultados de áreas
+    const areasConValor = resultadosAreas.filter(r => r.valor);
+    if (areasConValor.length > 0) {
+        html += `📍 <strong>Áreas detectadas:</strong><br>`;
+        areasConValor.forEach(area => {
+            html += `&nbsp;&nbsp;• ${area.descripcion}: ${area.valor} Bs<br>`;
+        });
+    }
+    
+    // Agregar seguridad
+    html += `🔒 <strong>Seguridad:</strong> `;
+    const seguridadItems = [];
+    if (seguridad.marcaAgua.detectada) seguridadItems.push('Marca de agua');
+    if (seguridad.lineasSeguridad.detectadas) seguridadItems.push('Líneas de seguridad');
+    if (seguridad.holograma.detectado) seguridadItems.push('Holograma');
+    html += seguridadItems.length > 0 ? seguridadItems.join(', ') : 'No detectadas';
+    html += `<br>`;
+    
+    // Agregar texto OCR para debug
+    html += `<br><strong>Texto OCR crudo:</strong><br><code>${textoOCR.replace(/\n/g, '<br>')}</code></div>`;
+    
+    debugDiv.innerHTML = html;
+    document.getElementById('results').appendChild(debugDiv);
+}
+
+function mostrarErrorGeneral(error) {
+    const errorDiv = document.createElement('div');
+    errorDiv.className = 'result-item error';
+    errorDiv.innerHTML = `
+        <div class="result-header">❌ Error en el procesamiento</div>
+        <div class="result-message">Ocurrió un error: ${error.message}</div>
+    `;
+    document.getElementById('results').appendChild(errorDiv);
+}
+
+// Modificar appendResult para mostrar información adicional
+function appendResult(r) {
+    const container = document.getElementById('results');
+    const div = document.createElement('div');
+    div.className = `result-item ${r.status}`;
+    
+    const statusEmoji = r.status === 'bad' ? '🔴' : '🟢';
+    const confianzaValor = r.confianzaValor ? (r.confianzaValor * 100).toFixed(0) : 'N/A';
+    
+    // Determinar clase de confianza
+    let confianzaClass = 'confianza-baja';
+    if (r.confianzaValor >= 0.7) confianzaClass = 'confianza-alta';
+    else if (r.confianzaValor >= 0.4) confianzaClass = 'confianza-media';
+    
+    // Determinar emoji de seguridad
+    let seguridadEmoji = '⚪';
+    let seguridadTexto = 'No evaluada';
+    if (r.seguridad) {
+        const itemsSeguridad = [];
+        if (r.seguridad.marcaAgua.detectada) itemsSeguridad.push('💧');
+        if (r.seguridad.lineasSeguridad.detectadas) itemsSeguridad.push('📏');
+        if (r.seguridad.holograma.detectado) itemsSeguridad.push('✨');
         
-        const res = checkSerial(p.denom, letter, p.number);
-        appendResult(res);
-    });
+        if (itemsSeguridad.length > 0) {
+            seguridadEmoji = itemsSeguridad.join('');
+            seguridadTexto = 'Características detectadas';
+        }
+    }
+    
+    div.innerHTML = `
+        <div class="result-header">${statusEmoji} ${r.valorDetectado} Bs - Serie ${r.letter} ${r.number}</div>
+        <div class="result-message">
+            ${r.message}
+            <div class="seguridad-indicators">
+                <small>
+                    🎨 Confianza valor: <span class="confianza-indicator ${confianzaClass}">${confianzaValor}%</span><br>
+                    ${seguridadEmoji} ${seguridadTexto}
+                </small>
+            </div>
+        </div>
+    `;
+    container.appendChild(div);
 }
 
 // camera and upload logic
