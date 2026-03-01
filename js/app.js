@@ -101,7 +101,9 @@ function appendResult(r) {
 // OCR helpers
 async function recognizeImage(image) {
     const { data: { text } } = await Tesseract.recognize(image, 'spa', {
-        logger: m => console.log(m)
+        logger: m => console.log('[OCR]', m.status, m.progress),
+        // Opciones para mejorar detección en esquinas y números pequeños
+        tessedit_char_whitelist: '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz ',
     });
     return text;
 }
@@ -272,8 +274,34 @@ if ('serviceWorker' in navigator) {
     document.getElementById('pwa-status').textContent = '⚠ Este navegador no soporta PWA';
 }
 
+// ==================== PWA INSTALL PROMPT ====================
+let deferredPrompt;
+
+window.addEventListener('beforeinstallprompt', (e) => {
+    console.log('[PWA] Instalación disponible');
+    e.preventDefault();
+    deferredPrompt = e;
+    // Mostrar botón de instalación
+    document.getElementById('install-pwa').classList.remove('hidden');
+});
+
+document.getElementById('install-pwa').addEventListener('click', async () => {
+    if (deferredPrompt) {
+        deferredPrompt.prompt();
+        const { outcome } = await deferredPrompt.userChoice;
+        console.log(`[PWA] Usuario respondió: ${outcome}`);
+        deferredPrompt = null;
+        document.getElementById('install-pwa').classList.add('hidden');
+    }
+});
+
+window.addEventListener('appinstalled', () => {
+    console.log('[PWA] App instalada exitosamente');
+    showUpdateNotification('✓ ¡Aplicación instalada! Ahora funciona offline.');
+});
+
 // Notificar al usuario cuando hay una actualización disponible
-function showUpdateNotification() {
+function showUpdateNotification(message = '📱 Nueva versión disponible. Recarga la página.') {
     const notification = document.createElement('div');
     notification.style.cssText = `
         position: fixed;
@@ -286,8 +314,9 @@ function showUpdateNotification() {
         box-shadow: 0 4px 12px rgba(0,0,0,0.15);
         z-index: 9999;
         font-weight: 600;
+        max-width: 90%;
     `;
-    notification.textContent = '📱 Nueva versión disponible. Recarga la página.';
+    notification.textContent = message;
     document.body.appendChild(notification);
     setTimeout(() => notification.remove(), 6000);
 }

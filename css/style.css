@@ -74,6 +74,15 @@ button:disabled {
     opacity: 0.6;
 }
 
+#install-pwa {
+    background: #f6ad55;
+}
+
+#install-pwa:hover {
+    background: #ed8936;
+    box-shadow: 0 6px 12px rgba(237, 137, 54, 0.4);
+}
+
 input[type="file"] {
     background: white;
     color: #333;

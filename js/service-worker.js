@@ -1,8 +1,9 @@
 // Service Worker para Validador de Billetes BCB
-// Versión 1.0.0
+// Versión 1.1.0 - Mejorado para mejor offline
 // Fecha: Marzo 2026
 
-const CACHE_NAME = 'bcb-validador-v1';
+const CACHE_NAME = 'bcb-validador-v1-1';
+const CACHE_CDN = 'bcb-cdn-v1-1';
 const STATIC_ASSETS = [
     '/bcb/index.html',
     '/bcb/css/style.css',
@@ -10,8 +11,10 @@ const STATIC_ASSETS = [
     '/bcb/manifest.json'
 ];
 
-// No cachear Tesseract desde el inicio para evitar conflictos
-// Se cacheará bajo demanda con estrategia network-first
+// URLs de CDN que se cachearán bajo demanda
+const CDN_URLS = [
+    'https://cdn.jsdelivr.net/npm/tesseract.js@4/dist/tesseract.min.js'
+];
 
 // Instalar el service worker y cachear archivos estáticos
 self.addEventListener('install', (event) => {
@@ -37,7 +40,8 @@ self.addEventListener('activate', (event) => {
         caches.keys().then((cacheNames) => {
             return Promise.all(
                 cacheNames.map((cacheName) => {
-                    if (cacheName !== CACHE_NAME) {
+                    // Mantener solo los caches actuales
+                    if (cacheName !== CACHE_NAME && cacheName !== CACHE_CDN) {
                         console.log('[ServiceWorker] Eliminando cache antiguo:', cacheName);
                         return caches.delete(cacheName);
                     }
@@ -58,22 +62,26 @@ self.addEventListener('fetch', (event) => {
 
     const url = new URL(event.request.url);
     
-    // Estrategia especial para Tesseract: network-first (siempre intentar red primero)
+    // Estrategia especial para CDN (Tesseract): network-first con timeout
     if (url.hostname === 'cdn.jsdelivr.net' || url.hostname === 'unpkg.com') {
         event.respondWith(
-            fetch(event.request)
+            fetchWithTimeout(event.request, 10000) // 10 segundos timeout
                 .then((response) => {
                     if (!response || response.status !== 200) {
                         return response;
                     }
                     const responseToCache = response.clone();
-                    caches.open(CACHE_NAME)
-                        .then((cache) => cache.put(event.request, responseToCache));
+                    caches.open(CACHE_CDN)
+                        .then((cache) => {
+                            cache.put(event.request, responseToCache);
+                        })
+                        .catch(e => console.warn('[ServiceWorker] Error cacheando CDN:', e));
                     return response;
                 })
-                .catch(() => {
-                    // Si falla la red, intentar caché como fallback
-                    return caches.match(event.request);
+                .catch((error) => {
+                    console.warn('[ServiceWorker] Error CDN, intentando cache:', error);
+                    return caches.match(event.request)
+                        .then(cached => cached || createOfflineResponse());
                 })
         );
     } else {
@@ -87,7 +95,7 @@ self.addEventListener('fetch', (event) => {
                     }
 
                     console.log('[ServiceWorker] Obteniendo de la red:', event.request.url);
-                    return fetch(event.request)
+                    return fetchWithTimeout(event.request, 5000)
                         .then((response) => {
                             if (!response || response.status !== 200 || response.type === 'error') {
                                 return response;
@@ -97,18 +105,41 @@ self.addEventListener('fetch', (event) => {
                             caches.open(CACHE_NAME)
                                 .then((cache) => {
                                     cache.put(event.request, responseToCache);
-                                });
+                                })
+                                .catch(e => console.warn('[ServiceWorker] Error cacheando:', e));
 
                             return response;
                         })
                         .catch((error) => {
-                            console.error('[ServiceWorker] Error en fetch:', error);
-                            throw error;
+                            console.error('[ServiceWorker] Error en fetch, usando cache:', error);
+                            return caches.match(event.request)
+                                .then(cached => cached || createOfflineResponse());
                         });
                 })
         );
     }
 });
+
+// Fetch con timeout
+function fetchWithTimeout(request, timeout) {
+    return Promise.race([
+        fetch(request),
+        new Promise((_, reject) =>
+            setTimeout(() => reject(new Error('Timeout')), timeout)
+        )
+    ]);
+}
+
+// Respuesta offline placeholder
+function createOfflineResponse() {
+    return new Response('Offline - Recurso no disponible', {
+        status: 503,
+        statusText: 'Service Unavailable',
+        headers: new Headers({
+            'Content-Type': 'text/plain'
+        })
+    });
+}
 
 // Escuchar mensajes del cliente (para actualizaciones de cache)
 self.addEventListener('message', (event) => {
