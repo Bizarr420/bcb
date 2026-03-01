@@ -7,10 +7,11 @@ const STATIC_ASSETS = [
     '/bcb/index.html',
     '/bcb/css/style.css',
     '/bcb/js/app.js',
-    '/bcb/manifest.json',
-    'https://cdn.jsdelivr.net/npm/tesseract.js@4/dist/tesseract.min.js',
-    'https://cdn.jsdelivr.net/npm/tesseract.js-core@v5.2.3/tesseract-core.wasm.js'
+    '/bcb/manifest.json'
 ];
+
+// No cachear Tesseract desde el inicio para evitar conflictos
+// Se cacheará bajo demanda con estrategia network-first
 
 // Instalar el service worker y cachear archivos estáticos
 self.addEventListener('install', (event) => {
@@ -48,51 +49,65 @@ self.addEventListener('activate', (event) => {
     self.clients.claim();
 });
 
-// Estrategia Cache-First: sirve desde cache, si no existe intenta red
+// Estrategia de caché inteligente
 self.addEventListener('fetch', (event) => {
     // Solo cachear requests GET
     if (event.request.method !== 'GET') {
         return;
     }
 
-    // Estrategia cache-first con fallback a red
-    event.respondWith(
-        caches.match(event.request)
-            .then((response) => {
-                // Si está en cache, devolverlo
-                if (response) {
-                    console.log('[ServiceWorker] Sirviendo desde cache:', event.request.url);
-                    return response;
-                }
-
-                // Si no está en cache, intentar obtener de la red
-                console.log('[ServiceWorker] Obteniendo de la red:', event.request.url);
-                return fetch(event.request)
-                    .then((response) => {
-                        // Validar respuesta
-                        if (!response || response.status !== 200 || response.type === 'error') {
-                            return response;
-                        }
-
-                        // Clonar la respuesta antes de almacenarla
-                        const responseToCache = response.clone();
-
-                        // Almacenar en cache para futuro offline
-                        caches.open(CACHE_NAME)
-                            .then((cache) => {
-                                cache.put(event.request, responseToCache);
-                            });
-
+    const url = new URL(event.request.url);
+    
+    // Estrategia especial para Tesseract: network-first (siempre intentar red primero)
+    if (url.hostname === 'cdn.jsdelivr.net' || url.hostname === 'unpkg.com') {
+        event.respondWith(
+            fetch(event.request)
+                .then((response) => {
+                    if (!response || response.status !== 200) {
                         return response;
-                    })
-                    .catch((error) => {
-                        // Si no hay conexión y no está en cache, retornar error
-                        console.error('[ServiceWorker] Error en fetch:', error);
-                        // Podría retornar una página de error personalizada aquí
-                        throw error;
-                    });
-            })
-    );
+                    }
+                    const responseToCache = response.clone();
+                    caches.open(CACHE_NAME)
+                        .then((cache) => cache.put(event.request, responseToCache));
+                    return response;
+                })
+                .catch(() => {
+                    // Si falla la red, intentar caché como fallback
+                    return caches.match(event.request);
+                })
+        );
+    } else {
+        // Para archivos locales: estrategia cache-first
+        event.respondWith(
+            caches.match(event.request)
+                .then((response) => {
+                    if (response) {
+                        console.log('[ServiceWorker] Sirviendo desde cache:', event.request.url);
+                        return response;
+                    }
+
+                    console.log('[ServiceWorker] Obteniendo de la red:', event.request.url);
+                    return fetch(event.request)
+                        .then((response) => {
+                            if (!response || response.status !== 200 || response.type === 'error') {
+                                return response;
+                            }
+
+                            const responseToCache = response.clone();
+                            caches.open(CACHE_NAME)
+                                .then((cache) => {
+                                    cache.put(event.request, responseToCache);
+                                });
+
+                            return response;
+                        })
+                        .catch((error) => {
+                            console.error('[ServiceWorker] Error en fetch:', error);
+                            throw error;
+                        });
+                })
+        );
+    }
 });
 
 // Escuchar mensajes del cliente (para actualizaciones de cache)

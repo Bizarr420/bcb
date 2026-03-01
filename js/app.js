@@ -121,16 +121,31 @@ function parseText(text) {
     // find serials anywhere in text, capturing letter before or after number
     // pattern covers "B032288398", "032288398 B" and similar
     // explicitly keep any leading zeros in the number portion
-    const serialRegex = /([A-Za-z])\s*(\d{7,9})|(\d{7,9})\s*([A-Za-z])/g;
+    // also match patterns with optional spacing/dashes
+    const serialRegex = /([A-Za-z])\s*[-]?\s*(\d{7,9})|(\d{7,9})\s*[-]?\s*([A-Za-z])/g;
     let match;
     while ((match = serialRegex.exec(text)) !== null) {
         if (match[1] && match[2]) {
+            // Letter before number
             results.push({ denom: defaultDenom, letter: match[1], number: match[2] });
         } else if (match[3] && match[4]) {
+            // Number before letter
             results.push({ denom: defaultDenom, letter: match[4], number: match[3] });
         }
     }
-    return results;
+    
+    // Remove duplicates by serial key
+    const uniqueResults = [];
+    const seen = new Set();
+    results.forEach(r => {
+        const key = `${r.letter}${r.number}`;
+        if (!seen.has(key)) {
+            seen.add(key);
+            uniqueResults.push(r);
+        }
+    });
+    
+    return uniqueResults;
 }
 
 async function processImage(img) {
@@ -146,15 +161,25 @@ async function processImage(img) {
     parsed.forEach(p => {
         // normalize series letter: only A or B are valid, map common misreads
         let letter = p.letter.toUpperCase();
-        if (letter === 'U') {
-            // OCR frequently confuses B/U; assume B when number begins with 0 or
-            // when the letter is not A (only A/B exist)
+        
+        // Common OCR confusions in billetes:
+        // B puede verse como: U, 8, 6, o V
+        // A puede verse como: 4
+        if (letter === 'U' || letter === '8' || letter === '6' || letter === 'V') {
             letter = 'B';
         }
-        if (letter !== 'A' && letter !== 'B') {
-            // if another character appears, treat as invalid; default to A
+        if (letter === '4') {
             letter = 'A';
         }
+        
+        // Si sigue siendo inválido, intentar deducir del contexto
+        if (letter !== 'A' && letter !== 'B') {
+            // La mayoría de billetes dañados/inhabilitados son Serie B
+            // Así que si hay ambigüedad, asumir B
+            console.warn('[App] Carácter ambiguo detectado:', p.letter, '-> asumiendo B');
+            letter = 'B';
+        }
+        
         const res = checkSerial(p.denom, letter, p.number);
         appendResult(res);
     });
