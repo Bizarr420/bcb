@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Valida billetes bolivianos Serie B usando OCR. Funciona offline como PWA.">
+    <meta name="theme-color" content="#667eea">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Validador BCB">
+    <link rel="icon" type="image/png" href="icons/icon-192x192.png">
+    <link rel="apple-touch-icon" href="icons/icon-192x192.png">
+    <link rel="manifest" href="manifest.json">
+    <title>Validador de Billetes BCB - Serie B</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <header>
+        <h1>💵 Validador de Billetes</h1>
+        <p class="update">Última actualización: <span id="last-updated"></span></p>
+    </header>
+
+    <main>
+        <div class="controls">
+            <button id="use-camera">📷 Escanear con cámara</button>
+            <input type="file" id="upload-image" accept="image/*">
+            <button id="verify" disabled>✓ Verificar</button>
+        </div>
+        <div id="video-container" class="hidden">
+            <video id="video" playsinline autoplay></video>
+            <button id="capture">📸 Capturar</button>
+            <canvas id="canvas" class="hidden"></canvas>
+        </div>
+        <div id="results"></div>
+    </main>
+
+    <footer>
+        <p class="legal">⚠️ Esta herramienta funciona con datos públicos del BCB y no reemplaza la validación oficial de una entidad financiera.</p>
+        <p class="copyright">© 2026 Bizarr420. Todos los derechos reservados.</p>
+        <p class="pwa-status" id="pwa-status">Preparando aplicación...</p>
+    </footer>
+
+    <!-- Tesseract.js from CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@4/dist/tesseract.min.js"></script>
+    <script src="js/app.js"></script>
+</body>
+</html>

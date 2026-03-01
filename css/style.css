@@ -1,0 +1,225 @@
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    padding: 1rem;
+}
+
+header {
+    background: white;
+    padding: 2rem;
+    border-radius: 12px;
+    text-align: center;
+    margin-bottom: 2rem;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+
+header h1 {
+    color: #333;
+    margin-bottom: 0.5rem;
+    font-size: 1.8rem;
+}
+
+.update {
+    font-size: 0.85rem;
+    color: #666;
+    font-style: italic;
+}
+
+main {
+    max-width: 500px;
+    margin: 0 auto;
+    width: 100%;
+}
+
+.controls {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    margin-bottom: 2rem;
+}
+
+button, input[type="file"] {
+    padding: 1rem;
+    font-size: 1rem;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    font-weight: 600;
+    transition: all 0.3s ease;
+}
+
+button {
+    background: #667eea;
+    color: white;
+}
+
+button:hover:not(:disabled) {
+    background: #5568d3;
+    transform: translateY(-2px);
+    box-shadow: 0 6px 12px rgba(102, 126, 234, 0.4);
+}
+
+button:disabled {
+    background: #ccc;
+    cursor: not-allowed;
+    opacity: 0.6;
+}
+
+input[type="file"] {
+    background: white;
+    color: #333;
+    border: 2px solid #667eea;
+    cursor: pointer;
+}
+
+input[type="file"]::file-selector-button {
+    background: #667eea;
+    color: white;
+    padding: 0.5rem 1rem;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-weight: 600;
+    margin-right: 0.5rem;
+}
+
+#video-container {
+    background: white;
+    border-radius: 12px;
+    padding: 1rem;
+    margin-bottom: 2rem;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+
+#video {
+    width: 100%;
+    border-radius: 8px;
+    display: block;
+    margin-bottom: 1rem;
+}
+
+#capture {
+    width: 100%;
+    background: #48bb78;
+}
+
+#capture:hover {
+    background: #38a169;
+    box-shadow: 0 6px 12px rgba(72, 187, 120, 0.4);
+}
+
+.hidden {
+    display: none;
+}
+
+#results {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
+
+.result-item {
+    background: white;
+    border-radius: 8px;
+    padding: 1.5rem;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    border-left: 4px solid #ccc;
+    transition: all 0.3s ease;
+}
+
+.result-item.ok {
+    border-left-color: #48bb78;
+    background: #f0fdf4;
+}
+
+.result-item.bad {
+    border-left-color: #f56565;
+    background: #fef2f2;
+}
+
+.result-item.error,
+.result-item.duplicate {
+    border-left-color: #ecc94b;
+    background: #fffaf0;
+}
+
+.result-header {
+    font-size: 1.1rem;
+    font-weight: 600;
+    color: #333;
+    margin-bottom: 0.5rem;
+}
+
+.result-message {
+    font-size: 0.95rem;
+    color: #666;
+}
+
+footer {
+    background: white;
+    padding: 1.5rem;
+    border-radius: 12px;
+    text-align: center;
+    margin-top: 2rem;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+
+.legal {
+    font-size: 0.85rem;
+    color: #666;
+    line-height: 1.4;
+}
+
+.copyright {
+    font-size: 0.8rem;
+    color: #999;
+    margin-top: 0.5rem;
+}
+
+.pwa-status {
+    font-size: 0.8rem;
+    color: #999;
+    margin-top: 0.8rem;
+    font-style: italic;
+}
+
+/* Responsive design */
+@media (max-width: 480px) {
+    header {
+        padding: 1.5rem;
+    }
+
+    header h1 {
+        font-size: 1.5rem;
+    }
+
+    .controls {
+        gap: 0.8rem;
+    }
+
+    button, input[type="file"] {
+        padding: 0.8rem;
+        font-size: 0.95rem;
+    }
+
+    .result-item {
+        padding: 1rem;
+    }
+
+    .result-header {
+        font-size: 1rem;
+    }
+
+    .result-message {
+        font-size: 0.9rem;
+    }
+}
