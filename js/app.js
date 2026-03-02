@@ -621,8 +621,8 @@ function preprocesarImagenOptimizada(imageData) {
             const canvas = document.createElement('canvas');
             const ctx = canvas.getContext('2d');
             
-            // Reducir tamaño para procesamiento más rápido (máximo 800px)
-            const maxSize = 800;
+            // Reducir tamaño para procesamiento más rápido (máximo 600px para mejor rendimiento)
+            const maxSize = 600;
             let width = img.width;
             let height = img.height;
             
@@ -640,104 +640,80 @@ function preprocesarImagenOptimizada(imageData) {
             canvas.height = height;
             ctx.drawImage(img, 0, 0, width, height);
             
-            // Preprocesamiento avanzado
+            // Preprocesamiento simplificado pero efectivo
             const imageData = ctx.getImageData(0, 0, width, height);
             const data = imageData.data;
             
-            // 1. Convertir a escala de grises con fórmula mejorada
+            // 1. Convertir a escala de grises
             for (let i = 0; i < data.length; i += 4) {
-                const gray = data[i] * 0.2126 + data[i + 1] * 0.7152 + data[i + 2] * 0.0722;
+                const gray = data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114;
                 data[i] = gray;
                 data[i + 1] = gray;
                 data[i + 2] = gray;
             }
             
-            // 2. Reducir ruido con filtro mediano simple
-            const smoothed = new Uint8ClampedArray(data);
-            for (let y = 1; y < height - 1; y++) {
-                for (let x = 1; x < width - 1; x++) {
-                    const idx = (y * width + x) * 4;
-                    
-                    // Filtro mediano 3x3
-                    const neighbors = [];
-                    for (let dy = -1; dy <= 1; dy++) {
-                        for (let dx = -1; dx <= 1; dx++) {
-                            const nIdx = ((y + dy) * width + (x + dx)) * 4;
-                            neighbors.push(data[nIdx]);
-                        }
-                    }
-                    neighbors.sort((a, b) => a - b);
-                    const median = neighbors[4]; // Mediana de 9 valores
-                    
-                    smoothed[idx] = median;
-                    smoothed[idx + 1] = median;
-                    smoothed[idx + 2] = median;
+            // 2. Mejorar contraste simple (más rápido que ecualización)
+            let min = 255, max = 0;
+            for (let i = 0; i < data.length; i += 4) {
+                const gray = data[i];
+                if (gray < min) min = gray;
+                if (gray > max) max = gray;
+            }
+            
+            const range = max - min;
+            if (range > 0) {
+                const scale = 255 / range;
+                for (let i = 0; i < data.length; i += 4) {
+                    const normalized = (data[i] - min) * scale;
+                    data[i] = normalized;
+                    data[i + 1] = normalized;
+                    data[i + 2] = normalized;
                 }
             }
             
-            // 3. Mejorar contraste con ecualización de histograma
-            const histogram = new Array(256).fill(0);
-            for (let i = 0; i < smoothed.length; i += 4) {
-                histogram[smoothed[i]]++;
-            }
+            // 3. Binarización adaptativa simple (más rápida)
+            const binary = new Uint8ClampedArray(data.length);
+            const windowSize = 11; // Ventana más pequeña para mayor velocidad
             
-            // Calcular CDF
-            const cdf = new Array(256);
-            cdf[0] = histogram[0];
-            for (let i = 1; i < 256; i++) {
-                cdf[i] = cdf[i - 1] + histogram[i];
-            }
-            
-            // Normalizar
-            const cdfMin = cdf.find(val => val > 0);
-            const pixelCount = width * height;
-            const equalizationMap = new Array(256);
-            
-            for (let i = 0; i < 256; i++) {
-                equalizationMap[i] = Math.round(((cdf[i] - cdfMin) / (pixelCount - cdfMin)) * 255);
-            }
-            
-            // Aplicar ecualización
-            for (let i = 0; i < smoothed.length; i += 4) {
-                const newValue = equalizationMap[smoothed[i]];
-                smoothed[i] = newValue;
-                smoothed[i + 1] = newValue;
-                smoothed[i + 2] = newValue;
-            }
-            
-            // 4. Binarización adaptativa local
-            const windowSize = 15;
-            const binary = new Uint8ClampedArray(smoothed.length);
-            
-            for (let y = 0; y < height; y++) {
-                for (let x = 0; x < width; x++) {
+            for (let y = 0; y < height; y += 2) { // Procesar cada 2 píxeles para velocidad
+                for (let x = 0; x < width; x += 2) {
                     const idx = (y * width + x) * 4;
                     
-                    // Calcular umbral local
+                    // Calcular umbral local simplificado
                     let sum = 0;
                     let count = 0;
                     
-                    for (let dy = -windowSize; dy <= windowSize; dy++) {
-                        for (let dx = -windowSize; dx <= windowSize; dx++) {
+                    for (let dy = -windowSize; dy <= windowSize; dy += 2) {
+                        for (let dx = -windowSize; dx <= windowSize; dx += 2) {
                             const ny = y + dy;
                             const nx = x + dx;
                             
                             if (ny >= 0 && ny < height && nx >= 0 && nx < width) {
                                 const nIdx = (ny * width + nx) * 4;
-                                sum += smoothed[nIdx];
+                                sum += data[nIdx];
                                 count++;
                             }
                         }
                     }
                     
                     const localMean = sum / count;
-                    const threshold = localMean * 0.85; // 85% del promedio local
+                    const threshold = localMean * 0.9; // 90% del promedio local
+                    const value = data[idx] > threshold ? 255 : 0;
                     
-                    const value = smoothed[idx] > threshold ? 255 : 0;
+                    // Aplicar a píxel actual y vecino para compensar el salto
                     binary[idx] = value;
                     binary[idx + 1] = value;
                     binary[idx + 2] = value;
                     binary[idx + 3] = 255;
+                    
+                    // Rellenar píxel vecino
+                    if (x + 1 < width) {
+                        const neighborIdx = (y * width + (x + 1)) * 4;
+                        binary[neighborIdx] = value;
+                        binary[neighborIdx + 1] = value;
+                        binary[neighborIdx + 2] = value;
+                        binary[neighborIdx + 3] = 255;
+                    }
                 }
             }
             
@@ -750,35 +726,54 @@ function preprocesarImagenOptimizada(imageData) {
 
 // OCR helpers optimizado
 async function recognizeImage(image) {
-    // Preprocesar imagen primero
-    const imagenProcesada = await preprocesarImagenOptimizada(image);
-    
-    // Configuración optimizada para números y seriales
-    const customConfig = {
-        lang: 'spa',
-        logger: m => {
-            if (m.status === 'recognizing text') {
-                console.log(`[OCR] Procesando: ${Math.round(m.progress * 100)}%`);
-            }
-        },
-        // Opciones optimizadas para números
-        tessedit_char_whitelist: '0123456789AB',
-        tessedit_pageseg_mode: '7', // Single text line
-        tessedit_ocr_engine_mode: '1', // LSTM only
-        preserve_interword_spaces: '0',
-        tessedit_do_auto_ocr: '0',
-        tessedit_min_recog_char_rating: '20',
-        tessedit_zero_rejection: '0',
-        tessedit_zero_membership: '0'
-    };
-    
     try {
-        const { data: { text } } = await Tesseract.recognize(imagenProcesada, customConfig);
-        return text;
+        // Intentar OCR sin preprocesamiento primero (más rápido)
+        console.log('[OCR] Intentando reconocimiento directo...');
+        const { data: { text } } = await Tesseract.recognize(image, 'spa', {
+            logger: m => {
+                if (m.status === 'recognizing text') {
+                    console.log(`[OCR] Procesando: ${Math.round(m.progress * 100)}%`);
+                }
+            },
+            tessedit_char_whitelist: '0123456789AB',
+            tessedit_pageseg_mode: '7',
+            tessedit_ocr_engine_mode: '1',
+            preserve_interword_spaces: '0',
+            tessedit_min_recog_char_rating: '15'
+        });
+        
+        // Si se encuentran seriales válidos, retornar
+        const parsed = parseText(text);
+        if (parsed.length > 0) {
+            console.log('[OCR] Reconocimiento directo exitoso');
+            return text;
+        }
+        
+        // Si no, intentar con preprocesamiento
+        console.log('[OCR] Aplicando preprocesamiento...');
+        const imagenProcesada = await preprocesarImagenOptimizada(image);
+        
+        const { data: { text: processedText } } = await Tesseract.recognize(imagenProcesada, 'spa', {
+            logger: m => {
+                if (m.status === 'recognizing text') {
+                    console.log(`[OCR] Procesando imagen preprocesada: ${Math.round(m.progress * 100)}%`);
+                }
+            },
+            tessedit_char_whitelist: '0123456789AB',
+            tessedit_pageseg_mode: '7',
+            tessedit_ocr_engine_mode: '1',
+            preserve_interword_spaces: '0',
+            tessedit_min_recog_char_rating: '20'
+        });
+        
+        return processedText;
+        
     } catch (error) {
         console.error('[OCR] Error en reconocimiento:', error);
-        // Fallback con configuración más simple
+        
+        // Fallback con configuración básica
         try {
+            console.log('[OCR] Usando fallback básico...');
             const { data: { text } } = await Tesseract.recognize(image, 'spa', {
                 logger: m => console.log('[OCR Fallback]', m.status, m.progress),
                 tessedit_char_whitelist: '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ'
@@ -793,7 +788,7 @@ async function recognizeImage(image) {
 
 function parseText(text) {
     // Parser mejorado y más preciso para seriales de billetes bolivianos
-    console.log('[Parser] Texto crudo recibido:', text);
+    console.log('[Parser] Texto crudo recibido:', JSON.stringify(text));
     
     // Limpiar texto manteniendo solo caracteres relevantes
     const cleanText = text.toUpperCase()
@@ -801,7 +796,7 @@ function parseText(text) {
         .replace(/\s+/g, ' ')
         .trim();
     
-    console.log('[Parser] Texto limpiado:', cleanText);
+    console.log('[Parser] Texto limpiado:', JSON.stringify(cleanText));
     
     const results = [];
     const denoms = new Set();
@@ -815,19 +810,24 @@ function parseText(text) {
     
     const defaultDenom = denoms.size > 0 ? Array.from(denoms)[0] : 10;
     
-    // Patrones específicos para seriales bolivianos (más precisos)
+    // Patrones específicos para seriales bolivianos (más permisivos)
     const serialPatterns = [
-        // Patrón 1: 8-9 dígitos + espacio + letra (ej: "032288398 B")
-        /(\d{7,9})\s+([AB])/g,
-        // Patrón 2: Letra + espacio + 8-9 dígitos (ej: "B 032288398")
-        /([AB])\s+(\d{7,9})/g,
-        // Patrón 3: 8-9 dígitos seguidos de letra (ej: "032288398B")
-        /(\d{7,9})([AB])/g,
-        // Patrón 4: Letra seguida de 8-9 dígitos (ej: "B032288398")
-        /([AB])(\d{7,9})/g
+        // Patrón 1: 6-10 dígitos + espacio + letra (ej: "032288398 B")
+        /(\d{6,10})\s+([AB])/g,
+        // Patrón 2: Letra + espacio + 6-10 dígitos (ej: "B 032288398")
+        /([AB])\s+(\d{6,10})/g,
+        // Patrón 3: 6-10 dígitos seguidos de letra (ej: "032288398B")
+        /(\d{6,10})([AB])/g,
+        // Patrón 4: Letra seguida de 6-10 dígitos (ej: "B032288398")
+        /([AB])(\d{6,10})/g,
+        // Patrón 5: Cualquier combinación de 6+ dígitos y A/B
+        /(\d{6,})[^0-9]*([AB])/g,
+        // Patrón 6: A/B seguido de 6+ dígitos
+        /([AB])[^0-9]*(\d{6,})/g
     ];
     
-    const foundSerials = new Set();
+    // Usar Map para mejor deduplicación y contar frecuencia
+    const foundSerials = new Map(); // serial -> {count, letter, number, originalLetter}
     
     // Probar cada patrón
     serialPatterns.forEach((pattern, patternIndex) => {
@@ -836,38 +836,38 @@ function parseText(text) {
             let letter, number;
             
             // Determinar letra y número según el patrón
-            if (patternIndex === 0) { // dígitos + espacio + letra
+            if (patternIndex === 0 || patternIndex === 2 || patternIndex === 4) { // dígitos primero
                 number = match[1];
                 letter = match[2];
-            } else if (patternIndex === 1) { // letra + espacio + dígitos
-                letter = match[1];
-                number = match[2];
-            } else if (patternIndex === 2) { // dígitos + letra
-                number = match[1];
-                letter = match[2];
-            } else { // letra + dígitos
+            } else { // letra primero
                 letter = match[1];
                 number = match[2];
             }
             
-            // Validar formato del número
-            if (number.length >= 7 && number.length <= 9) {
+            // Validar formato del número (más permisivo)
+            if (number.length >= 6 && number.length <= 10) {
+                const originalLetter = letter; // Guardar letra original para depuración
+                
                 // Correcciones comunes de OCR
                 letter = correctOCRErrors(letter);
                 number = correctNumberErrors(number);
                 
                 const serialKey = `${letter}${number}`;
                 
-                if (!foundSerials.has(serialKey)) {
-                    foundSerials.add(serialKey);
-                    results.push({
-                        denom: defaultDenom,
+                // Contar cuántas veces aparece este serial
+                if (foundSerials.has(serialKey)) {
+                    foundSerials.get(serialKey).count++;
+                } else {
+                    foundSerials.set(serialKey, {
+                        count: 1,
                         letter: letter,
-                        number: number
+                        number: number,
+                        originalLetter: originalLetter,
+                        patternIndex: patternIndex
                     });
-                    
-                    console.log(`[Parser] Serial encontrado: ${letter}${number} (patrón ${patternIndex + 1})`);
                 }
+                
+                console.log(`[Parser] Serial encontrado: ${letter}${number} (patrón ${patternIndex + 1}, original: "${originalLetter}", total: ${foundSerials.get(serialKey).count})`);
             }
         }
         
@@ -875,33 +875,78 @@ function parseText(text) {
         pattern.lastIndex = 0;
     });
     
-    // Si no se encontraron seriales con patrones estrictos, intentar búsqueda más laxa
-    if (results.length === 0) {
-        console.log('[Parser] Intentando búsqueda laxa...');
+    // Si no se encontraron seriales, intentar búsqueda muy laxa
+    if (foundSerials.size === 0) {
+        console.log('[Parser] Intentando búsqueda muy laxa...');
         
-        // Buscar cualquier combinación de 7-9 dígitos y A/B
-        const laxPattern = /(\d{7,9})[^0-9]*([AB])/g;
-        let match;
+        // Buscar cualquier número de 6+ dígitos y cualquier letra
+        const numbers = cleanText.match(/\d{6,}/g) || [];
+        const letters = cleanText.match(/[AB]/gi) || [];
         
-        while ((match = laxPattern.exec(cleanText)) !== null) {
-            const number = match[1];
-            let letter = correctOCRErrors(match[2]);
+        console.log('[Parser] Números encontrados:', numbers);
+        console.log('[Parser] Letras encontradas:', letters);
+        
+        if (numbers.length > 0 && letters.length > 0) {
+            // Intentar combinar el primer número con la primera letra
+            const number = numbers[0].substring(0, 9); // Limitar a 9 dígitos
+            const originalLetter = letters[0].toUpperCase();
+            const letter = correctOCRErrors(originalLetter);
             
             const serialKey = `${letter}${number}`;
-            if (!foundSerials.has(serialKey)) {
-                foundSerials.add(serialKey);
-                results.push({
-                    denom: defaultDenom,
-                    letter: letter,
-                    number: number
-                });
-                
-                console.log(`[Parser] Serial encontrado (búsqueda laxa): ${letter}${number}`);
-            }
+            foundSerials.set(serialKey, {
+                count: 1,
+                letter: letter,
+                number: number,
+                originalLetter: originalLetter,
+                patternIndex: 99 // Búsqueda laxa
+            });
+            
+            console.log(`[Parser] Serial creado por combinación: ${letter}${number} (original: "${originalLetter}")`);
         }
     }
     
-    console.log(`[Parser] Total seriales encontrados: ${results.length}`);
+    // Convertir Map a array, priorizando seriales que aparecen más veces
+    const sortedSerials = Array.from(foundSerials.entries())
+        .sort((a, b) => b[1].count - a[1].count); // Mayor frecuencia primero
+    
+    // Agregar solo los seriales únicos (priorizando los más frecuentes)
+    sortedSerials.forEach(([serialKey, data]) => {
+        results.push({
+            denom: defaultDenom,
+            letter: data.letter,
+            number: data.number,
+            frequency: data.count,
+            patternIndex: data.patternIndex,
+            originalLetter: data.originalLetter
+        });
+    });
+    
+    console.log(`[Parser] Total seriales únicos encontrados: ${results.length}`);
+    
+    // Mostrar información de depuración sobre duplicados y correcciones
+    if (sortedSerials.length > 0) {
+        const mostFrequent = sortedSerials[0];
+        console.log(`[Parser] Serial más frecuente: ${mostFrequent[0]} (aparece ${mostFrequent[1].count} veces)`);
+        console.log(`[Parser] Letra original: "${mostFrequent[1].originalLetter}" → Letra corregida: "${mostFrequent[1].letter}"`);
+        
+        if (mostFrequent[1].count > 1) {
+            console.log(`[Parser] ⚠️ Se detectaron duplicados, usando el más frecuente`);
+        }
+        
+        if (mostFrequent[1].originalLetter !== mostFrequent[1].letter) {
+            console.log(`[Parser] 🔤 Se aplicó corrección OCR: "${mostFrequent[1].originalLetter}" → "${mostFrequent[1].letter}"`);
+        }
+    }
+    
+    // Si aún no hay resultados, mostrar información de depuración
+    if (results.length === 0) {
+        console.warn('[Parser] No se encontraron seriales. Texto original:', text);
+        console.warn('[Parser] Texto limpio:', cleanText);
+        console.warn('[Parser] Longitud del texto:', cleanText.length);
+        console.warn('[Parser] Contiene números:', /\d/.test(cleanText));
+        console.warn('[Parser] Contiene letras A/B:', /[AB]/i.test(cleanText));
+    }
+    
     return results;
 }
 
@@ -920,20 +965,32 @@ function correctOCRErrors(letter) {
         'G': '6', // G a seis (raro)
         'Z': '2', // Z a dos (raro)
         'T': '7', // T a siete (raro)
+        'D': 'B', // D a B (posible)
+        'R': 'B', // R a B (posible)
+        'P': 'B', // P a B (posible)
+        'F': 'B', // F a B (posible)
     };
     
-    // Solo corregir si no es A o B ya
-    if (letter !== 'A' && letter !== 'B') {
-        return corrections[letter] || letter;
+    // Si ya es A o B, mantenerlo (no corregir)
+    if (letter === 'A' || letter === 'B') {
+        console.log(`[OCR] Letra ya válida: ${letter}`);
+        return letter;
     }
     
-    return letter;
+    // Aplicar corrección si existe
+    const corrected = corrections[letter] || letter;
+    if (corrected !== letter) {
+        console.log(`[OCR] Corrigiendo letra: ${letter} → ${corrected}`);
+    }
+    
+    return corrected;
 }
 
 // Corrección de errores en números
 function correctNumberErrors(number) {
     // Correcciones comunes en dígitos
-    return number
+    const original = number;
+    const corrected = number
         .replace(/O/g, '0') // O a cero
         .replace(/I/g, '1') // I a uno
         .replace(/S/g, '5') // S a cinco
@@ -942,6 +999,12 @@ function correctNumberErrors(number) {
         .replace(/T/g, '7') // T a siete
         .replace(/B/g, '8') // B a ocho (solo si está en medio de números)
         .replace(/U/g, '0'); // U a cero
+    
+    if (corrected !== original) {
+        console.log(`[OCR] Corrigiendo número: ${original} → ${corrected}`);
+    }
+    
+    return corrected;
 }
 
 async function processImage(img) {
@@ -963,16 +1026,41 @@ async function processImage(img) {
         const valorPorColor = await detectarValorPorColor(imagenCorregida);
         console.log('[Proceso] Valor detectado por color:', valorPorColor);
         
-        // 3. OCR optimizado para seriales (prioridad principal)
-        console.log('[Proceso] Paso 3: Extrayendo seriales con OCR optimizado...');
-        const text = await recognizeImage(imagenCorregida);
-        console.log('[Proceso] Texto OCR obtenido:', text);
+        // 3. OCR con múltiples intentos
+        console.log('[Proceso] Paso 3: Extrayendo seriales con OCR...');
+        let text = '';
         
-        // 4. Parsear seriales con algoritmo mejorado
+        // Intento 1: OCR directo
+        try {
+            text = await recognizeImage(imagenCorregida);
+            console.log('[Proceso] Texto OCR directo:', text);
+        } catch (error) {
+            console.warn('[Proceso] OCR directo falló, intentando con imagen original...');
+            try {
+                text = await recognizeImage(img);
+                console.log('[Proceso] Texto OCR original:', text);
+            } catch (error2) {
+                console.warn('[Proceso] OCR original también falló');
+            }
+        }
+        
+        // 4. Si no hay texto, intentar OCR básico sin configuración
+        if (!text || text.trim().length < 3) {
+            console.log('[Proceso] Intentando OCR básico sin configuración...');
+            try {
+                const { data: { text: basicText } } = await Tesseract.recognize(img, 'spa');
+                text = basicText;
+                console.log('[Proceso] Texto OCR básico:', text);
+            } catch (error) {
+                console.warn('[Proceso] OCR básico también falló');
+            }
+        }
+        
+        // 5. Parsear seriales con algoritmo mejorado
         const parsed = parseText(text);
         console.log('[Proceso] Seriales encontrados:', parsed);
         
-        // 5. Si no se encuentran seriales, intentar detección multi-área
+        // 6. Si no se encuentran seriales, intentar detección multi-área
         if (parsed.length === 0) {
             console.log('[Proceso] Paso 4: Intentando detección multi-área...');
             const areas = await detectarValorMultiArea(imagenCorregida);
@@ -986,7 +1074,7 @@ async function processImage(img) {
             return;
         }
         
-        // 6. Procesar seriales encontrados
+        // 7. Procesar seriales encontrados
         hideProcessingIndicator();
         
         for (const p of parsed) {
@@ -1120,8 +1208,46 @@ function calcularConfianzaValor(valorColor, resultadosAreas, valorFinal) {
 function mostrarErrorAnalisis(valorColor, resultadosAreas, seguridad, textoOCR) {
     const debugDiv = document.createElement('div');
     debugDiv.className = 'result-item error';
+    
+    // Mostrar información de depuración para ayudar al usuario
+    let debugInfo = '<div class="debug-info">';
+    debugInfo += '<small><strong>Información de depuración:</strong></small>';
+    
+    if (valorColor) {
+        debugInfo += `<small>🎨 Color detectado: ${valorColor} Bs</small>`;
+    } else {
+        debugInfo += `<small>🎨 Color no detectado (posible mala iluminación)</small>`;
+    }
+    
+    if (textoOCR && textoOCR.trim()) {
+        debugInfo += `<small>📝 Texto OCR: "${textoOCR.substring(0, 100)}${textoOCR.length > 100 ? '...' : ''}"</small>`;
+    } else {
+        debugInfo += `<small>📝 No se detectó texto (verifique que el serial sea visible)</small>`;
+    }
+    
+    if (resultadosAreas && resultadosAreas.length > 0) {
+        const areasConValor = resultadosAreas.filter(r => r.valor).length;
+        debugInfo += `<small>📍 Áreas con valor: ${areasConValor}/${resultadosAreas.length}</small>`;
+        
+        if (areasConValor === 0) {
+            debugInfo += `<small>⚠️ Ninguna área detectó el valor del billete</small>`;
+        }
+    }
+    
+    // Sugerencias para el usuario
+    debugInfo += '<small><strong>Sugerencias:</strong></small>';
+    debugInfo += '<small>• Asegúrese que el serial del billete sea claramente visible</small>';
+    debugInfo += '<small>• Use buena iluminación y evite reflejos</small>';
+    debugInfo += '<small>• Coloque el billete completo en la imagen</small>';
+    debugInfo += '<small>• Evite sombras o fondos muy oscuros</small>';
+    debugInfo += '<small>💡 Abra la consola (F12) para ver detalles técnicos</small>';
+    debugInfo += '</div>';
+    
     debugDiv.innerHTML = `
         <div class="result-header">❌ No se detectó el billete o no es válido</div>
+        <div class="result-message">
+            ${debugInfo}
+        </div>
     `;
     document.getElementById('results').appendChild(debugDiv);
 }
